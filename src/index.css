@@ -4,35 +4,35 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 240 30% 5%;
+    --foreground: 240 20% 96%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 240 28% 8%;
+    --card-foreground: 240 20% 96%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 240 28% 8%;
+    --popover-foreground: 240 20% 96%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 270 90% 65%;
+    --primary-foreground: 240 30% 5%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 190 95% 55%;
+    --secondary-foreground: 240 30% 5%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 240 20% 14%;
+    --muted-foreground: 240 12% 62%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 320 90% 60%;
+    --accent-foreground: 240 20% 96%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 240 20% 16%;
+    --input: 240 20% 16%;
+    --ring: 270 90% 65%;
 
-    --radius: 0.5rem;
+    --radius: 1rem;
 
     --sidebar-background: 0 0% 98%;
 
@@ -97,5 +97,59 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: "Golos Text", sans-serif;
   }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-display {
+    font-family: "Montserrat", sans-serif;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent;
+  }
+  .glass {
+    background: hsl(240 28% 8% / 0.55);
+    backdrop-filter: blur(16px);
+    border: 1px solid hsl(240 30% 30% / 0.25);
+  }
+  .glow {
+    box-shadow: 0 0 60px -12px hsl(270 90% 65% / 0.5);
+  }
+  .hover-scale {
+    @apply transition-transform duration-300 hover:scale-[1.03];
+  }
+}
+
+.aurora {
+  background:
+    radial-gradient(
+      40% 50% at 20% 20%,
+      hsl(270 90% 55% / 0.35),
+      transparent 70%
+    ),
+    radial-gradient(
+      45% 55% at 85% 30%,
+      hsl(190 95% 55% / 0.28),
+      transparent 70%
+    ),
+    radial-gradient(50% 50% at 50% 95%, hsl(320 90% 60% / 0.3), transparent 70%);
+  filter: blur(20px);
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(hsl(240 30% 30% / 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(240 30% 30% / 0.12) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(
+    ellipse 80% 60% at 50% 0%,
+    black,
+    transparent 75%
+  );
 }
