@@ -1,30 +1,56 @@
 import json
 import os
+import re
 import urllib.request
+
+
+GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
+MODEL = 'llama-3.3-70b-versatile'
+
+CORS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '86400',
+}
+
+SYSTEM = (
+    'You are a professional website content generator. '
+    'Given any user description in any language, generate a complete one-page website structure. '
+    'Respond ONLY with a valid JSON object, no markdown, no code blocks, no extra text. '
+    'JSON schema: '
+    '{"title": string, "tagline": string, '
+    '"sections": [{"heading": string, "text": string}], '
+    '"cta": string, "colors": {"primary": "#hex", "accent": "#hex"}}. '
+    'Generate 4-6 sections. Make texts compelling, vivid, and in the same language as the user request. '
+    'Choose colors that match the business theme.'
+)
+
+
+def extract_json(text: str) -> dict:
+    text = text.strip()
+    # убираем markdown-блоки если модель всё же добавила
+    text = re.sub(r'^```[a-z]*\n?', '', text, flags=re.MULTILINE)
+    text = re.sub(r'```$', '', text, flags=re.MULTILINE)
+    text = text.strip()
+    return json.loads(text)
 
 
 def handler(event: dict, context) -> dict:
     '''
-    Business: генерирует структуру и контент сайта по текстовому описанию пользователя через ИИ.
-    Args: event с httpMethod, body (JSON {prompt: str}); context с request_id.
-    Returns: HTTP-ответ с JSON {title, tagline, sections:[{heading, text}], cta, colors}.
+    Генерирует структуру и контент сайта по описанию пользователя через Groq Llama 3.
+    Принимает POST с телом {prompt: str}, возвращает {site: {...}}.
+    Работает без ограничений — open-source модель Llama 3.3 70B.
     '''
     method = event.get('httpMethod', 'GET')
 
-    cors = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Max-Age': '86400',
-    }
-
     if method == 'OPTIONS':
-        return {'statusCode': 200, 'headers': cors, 'body': ''}
+        return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
     if method != 'POST':
         return {
             'statusCode': 405,
-            'headers': {**cors, 'Content-Type': 'application/json'},
+            'headers': {**CORS, 'Content-Type': 'application/json'},
             'body': json.dumps({'error': 'Method not allowed'}),
         }
 
@@ -37,39 +63,30 @@ def handler(event: dict, context) -> dict:
     if not prompt:
         return {
             'statusCode': 400,
-            'headers': {**cors, 'Content-Type': 'application/json'},
+            'headers': {**CORS, 'Content-Type': 'application/json'},
             'body': json.dumps({'error': 'Опишите, какой сайт вы хотите создать'}),
         }
 
-    api_key = os.environ.get('OPENAI_API_KEY')
+    api_key = os.environ.get('GROQ_API_KEY')
     if not api_key:
         return {
             'statusCode': 500,
-            'headers': {**cors, 'Content-Type': 'application/json'},
-            'body': json.dumps({'error': 'ИИ временно недоступен'}),
+            'headers': {**CORS, 'Content-Type': 'application/json'},
+            'body': json.dumps({'error': 'ИИ временно недоступен — добавьте GROQ_API_KEY'}),
         }
 
-    system = (
-        'Ты — ИИ-конструктор сайтов. По описанию пользователя на любом языке '
-        'сгенерируй контент для одностраничного сайта. Отвечай СТРОГО в JSON без markdown. '
-        'Структура: {"title": str, "tagline": str, '
-        '"sections": [{"heading": str, "text": str}] (4-5 блоков), '
-        '"cta": str, "colors": {"primary": "#hex", "accent": "#hex"}}. '
-        'Тексты живые, продающие, на языке запроса.'
-    )
-
     payload = {
-        'model': 'gpt-4o-mini',
+        'model': MODEL,
         'messages': [
-            {'role': 'system', 'content': system},
+            {'role': 'system', 'content': SYSTEM},
             {'role': 'user', 'content': prompt},
         ],
-        'temperature': 0.8,
-        'response_format': {'type': 'json_object'},
+        'temperature': 0.85,
+        'max_tokens': 2048,
     }
 
     req = urllib.request.Request(
-        'https://api.openai.com/v1/chat/completions',
+        GROQ_API_URL,
         data=json.dumps(payload).encode('utf-8'),
         headers={
             'Authorization': f'Bearer {api_key}',
@@ -81,12 +98,11 @@ def handler(event: dict, context) -> dict:
     with urllib.request.urlopen(req, timeout=60) as resp:
         data = json.loads(resp.read().decode('utf-8'))
 
-    content = data['choices'][0]['message']['content']
-    site = json.loads(content)
+    raw = data['choices'][0]['message']['content']
+    site = extract_json(raw)
 
     return {
         'statusCode': 200,
-        'headers': {**cors, 'Content-Type': 'application/json'},
+        'headers': {**CORS, 'Content-Type': 'application/json'},
         'body': json.dumps({'site': site}, ensure_ascii=False),
-        'isBase64Encoded': False,
     }
