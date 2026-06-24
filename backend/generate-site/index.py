@@ -4,8 +4,8 @@ import re
 import urllib.request
 
 
-GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
-MODEL = 'llama-3.3-70b-versatile'
+API_URL = 'https://openrouter.ai/api/v1/chat/completions'
+MODEL = 'meta-llama/llama-3.3-70b-instruct:free'
 
 CORS = {
     'Access-Control-Allow-Origin': '*',
@@ -67,12 +67,12 @@ def handler(event: dict, context) -> dict:
             'body': json.dumps({'error': 'Опишите, какой сайт вы хотите создать'}),
         }
 
-    api_key = os.environ.get('GROQ_API_KEY')
+    api_key = os.environ.get('OPENROUTER_API_KEY')
     if not api_key:
         return {
             'statusCode': 500,
             'headers': {**CORS, 'Content-Type': 'application/json'},
-            'body': json.dumps({'error': 'ИИ временно недоступен — добавьте GROQ_API_KEY'}),
+            'body': json.dumps({'error': 'ИИ временно недоступен — добавьте OPENROUTER_API_KEY'}),
         }
 
     payload = {
@@ -86,11 +86,13 @@ def handler(event: dict, context) -> dict:
     }
 
     req = urllib.request.Request(
-        GROQ_API_URL,
+        API_URL,
         data=json.dumps(payload).encode('utf-8'),
         headers={
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://poehali.dev',
+            'X-Title': 'NebulaAI Site Generator',
         },
         method='POST',
     )
