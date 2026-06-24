@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS t_p63123944_site_generator_ai.ai_credits (
+    ip TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    reset_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (ip)
+);

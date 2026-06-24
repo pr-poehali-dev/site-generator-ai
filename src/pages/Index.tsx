@@ -78,6 +78,7 @@ const Index = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GeneratedSite | null>(null);
   const [open, setOpen] = useState(false);
+  const [credits, setCredits] = useState<number | null>(null);
 
   const scrollTo = (href: string) => {
     document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' });
@@ -101,6 +102,7 @@ const Index = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Ошибка генерации');
       setResult(data.site);
+      if (data.credits_remaining !== undefined) setCredits(data.credits_remaining);
     } catch (e) {
       setOpen(false);
       toast({
@@ -205,6 +207,12 @@ const Index = () => {
                 {loading ? 'Создаю...' : 'Создать'}
               </Button>
             </div>
+            {credits !== null && (
+              <div className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Icon name="Zap" size={14} className="text-primary" />
+                <span>Кредитов сегодня осталось: <span className="text-foreground font-medium">{credits}</span> / 1000</span>
+              </div>
+            )}
             <div className="mt-5 flex flex-wrap gap-3 text-sm text-muted-foreground">
               <span>Популярное:</span>
               {['Портфолио фотографа', 'Магазин одежды', 'Сайт-визитка'].map((t) => (

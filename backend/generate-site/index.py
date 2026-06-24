@@ -2,7 +2,10 @@ import json
 import os
 import re
 import urllib.request
+import psycopg2
 
+DAILY_LIMIT = 1000
+COST_PER_REQUEST = 1
 
 API_URL = 'https://openrouter.ai/api/v1/chat/completions'
 MODEL = 'meta-llama/llama-3.3-70b-instruct:free'
@@ -26,21 +29,67 @@ SYSTEM = (
     'Choose colors that match the business theme.'
 )
 
+SCHEMA = 't_p63123944_site_generator_ai'
+
+
+def get_ip(event: dict) -> str:
+    return (
+        event.get('requestContext', {}).get('identity', {}).get('sourceIp')
+        or event.get('headers', {}).get('X-Forwarded-For', 'unknown').split(',')[0].strip()
+    )
+
+
+def check_and_spend_credits(ip: str) -> tuple[bool, int]:
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    INSERT INTO {SCHEMA}.ai_credits (ip, used, reset_date)
+                    VALUES ('{ip}', 0, CURRENT_DATE AT TIME ZONE 'UTC')
+                    ON CONFLICT (ip) DO UPDATE
+                        SET used = CASE
+                            WHEN {SCHEMA}.ai_credits.reset_date < (CURRENT_DATE AT TIME ZONE 'UTC')
+                            THEN 0
+                            ELSE {SCHEMA}.ai_credits.used
+                        END,
+                        reset_date = CASE
+                            WHEN {SCHEMA}.ai_credits.reset_date < (CURRENT_DATE AT TIME ZONE 'UTC')
+                            THEN CURRENT_DATE AT TIME ZONE 'UTC'
+                            ELSE {SCHEMA}.ai_credits.reset_date
+                        END,
+                        updated_at = NOW()
+                    RETURNING used
+                """)
+                used = cur.fetchone()[0]
+                remaining = DAILY_LIMIT - used
+                if remaining < COST_PER_REQUEST:
+                    return False, remaining
+                cur.execute(f"""
+                    UPDATE {SCHEMA}.ai_credits
+                    SET used = used + {COST_PER_REQUEST}, updated_at = NOW()
+                    WHERE ip = '{ip}'
+                """)
+                return True, remaining - COST_PER_REQUEST
+    finally:
+        conn.close()
+
 
 def extract_json(text: str) -> dict:
     text = text.strip()
-    # убираем markdown-блоки если модель всё же добавила
     text = re.sub(r'^```[a-z]*\n?', '', text, flags=re.MULTILINE)
     text = re.sub(r'```$', '', text, flags=re.MULTILINE)
-    text = text.strip()
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        text = match.group(0)
     return json.loads(text)
 
 
 def handler(event: dict, context) -> dict:
     '''
-    Генерирует структуру и контент сайта по описанию пользователя через Groq Llama 3.
-    Принимает POST с телом {prompt: str}, возвращает {site: {...}}.
-    Работает без ограничений — open-source модель Llama 3.3 70B.
+    Генерирует структуру сайта через OpenRouter Llama 3.3 70B.
+    Лимит: 1000 кредитов в день на IP, сброс в полночь UTC.
+    POST {prompt: str} → {site: {...}, credits_remaining: int}
     '''
     method = event.get('httpMethod', 'GET')
 
@@ -72,7 +121,19 @@ def handler(event: dict, context) -> dict:
         return {
             'statusCode': 500,
             'headers': {**CORS, 'Content-Type': 'application/json'},
-            'body': json.dumps({'error': 'ИИ временно недоступен — добавьте OPENROUTER_API_KEY'}),
+            'body': json.dumps({'error': 'ИИ временно недоступен'}),
+        }
+
+    ip = get_ip(event)
+    ok, remaining = check_and_spend_credits(ip)
+    if not ok:
+        return {
+            'statusCode': 429,
+            'headers': {**CORS, 'Content-Type': 'application/json'},
+            'body': json.dumps({
+                'error': f'Дневной лимит исчерпан. Кредиты обновятся в полночь по UTC.',
+                'credits_remaining': 0,
+            }),
         }
 
     payload = {
@@ -117,5 +178,5 @@ def handler(event: dict, context) -> dict:
     return {
         'statusCode': 200,
         'headers': {**CORS, 'Content-Type': 'application/json'},
-        'body': json.dumps({'site': site}, ensure_ascii=False),
+        'body': json.dumps({'site': site, 'credits_remaining': remaining}, ensure_ascii=False),
     }
