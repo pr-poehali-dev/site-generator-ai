@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
@@ -10,6 +10,16 @@ import {
 } from '@/components/ui/dialog';
 
 const GENERATE_URL = 'https://functions.poehali.dev/ac2d299a-3ec2-4e40-86a9-758864f85230';
+
+function getBrowserId(): string {
+  const key = 'nebula_browser_id';
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
 
 const HERO_IMG =
   'https://cdn.poehali.dev/projects/691722e8-7b77-423b-9fd2-f67bc3d3851d/files/a02861e5-cc7a-4cf5-9b0a-0b21a83dbc6a.jpg';
@@ -80,6 +90,14 @@ const Index = () => {
   const [open, setOpen] = useState(false);
   const [credits, setCredits] = useState<number | null>(null);
 
+  useEffect(() => {
+    const bid = getBrowserId();
+    fetch(GENERATE_URL, { headers: { 'X-Browser-Id': bid } })
+      .then((r) => r.json())
+      .then((d) => { if (d.credits !== undefined) setCredits(d.credits); })
+      .catch(() => {});
+  }, []);
+
   const scrollTo = (href: string) => {
     document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -96,7 +114,7 @@ const Index = () => {
     try {
       const res = await fetch(GENERATE_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Browser-Id': getBrowserId() },
         body: JSON.stringify({ prompt: value }),
       });
       const data = await res.json();
@@ -140,13 +158,13 @@ const Index = () => {
             ))}
           </nav>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => scrollTo('#profile')}
-              className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Icon name="User" size={18} />
-              Профиль
-            </button>
+            {credits !== null && (
+              <div className="hidden sm:flex items-center gap-1.5 glass rounded-full px-3 py-1.5 text-sm">
+                <Icon name="Zap" size={14} className="text-primary" />
+                <span className="text-foreground font-medium">{credits}</span>
+                <span className="text-muted-foreground">/ 1000</span>
+              </div>
+            )}
             <Button
               onClick={() => scrollTo('#constructor')}
               className="rounded-full bg-gradient-to-r from-primary to-accent hover:opacity-90 font-semibold text-white"

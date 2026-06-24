@@ -13,7 +13,7 @@ MODEL = 'meta-llama/llama-3.3-70b-instruct:free'
 CORS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Browser-Id',
     'Access-Control-Max-Age': '86400',
 }
 
@@ -32,30 +32,53 @@ SYSTEM = (
 SCHEMA = 't_p63123944_site_generator_ai'
 
 
-def get_ip(event: dict) -> str:
-    return (
-        event.get('requestContext', {}).get('identity', {}).get('sourceIp')
-        or event.get('headers', {}).get('X-Forwarded-For', 'unknown').split(',')[0].strip()
-    )
+def get_browser_id(event: dict) -> str | None:
+    headers = event.get('headers') or {}
+    bid = headers.get('X-Browser-Id') or headers.get('x-browser-id')
+    if bid and len(bid) > 4:
+        return bid[:128]
+    return None
 
 
-def check_and_spend_credits(ip: str) -> tuple[bool, int]:
+def get_credits(browser_id: str) -> int:
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    SELECT used, reset_date FROM {SCHEMA}.ai_credits
+                    WHERE ip = '{browser_id}'
+                """)
+                row = cur.fetchone()
+                if not row:
+                    return DAILY_LIMIT
+                used, reset_date = row
+                from datetime import date, timezone
+                today = date.today()
+                if reset_date < today:
+                    return DAILY_LIMIT
+                return max(0, DAILY_LIMIT - used)
+    finally:
+        conn.close()
+
+
+def check_and_spend_credits(browser_id: str) -> tuple[bool, int]:
     conn = psycopg2.connect(os.environ['DATABASE_URL'])
     try:
         with conn:
             with conn.cursor() as cur:
                 cur.execute(f"""
                     INSERT INTO {SCHEMA}.ai_credits (ip, used, reset_date)
-                    VALUES ('{ip}', 0, CURRENT_DATE AT TIME ZONE 'UTC')
+                    VALUES ('{browser_id}', 0, CURRENT_DATE)
                     ON CONFLICT (ip) DO UPDATE
                         SET used = CASE
-                            WHEN {SCHEMA}.ai_credits.reset_date < (CURRENT_DATE AT TIME ZONE 'UTC')
+                            WHEN {SCHEMA}.ai_credits.reset_date < CURRENT_DATE
                             THEN 0
                             ELSE {SCHEMA}.ai_credits.used
                         END,
                         reset_date = CASE
-                            WHEN {SCHEMA}.ai_credits.reset_date < (CURRENT_DATE AT TIME ZONE 'UTC')
-                            THEN CURRENT_DATE AT TIME ZONE 'UTC'
+                            WHEN {SCHEMA}.ai_credits.reset_date < CURRENT_DATE
+                            THEN CURRENT_DATE
                             ELSE {SCHEMA}.ai_credits.reset_date
                         END,
                         updated_at = NOW()
@@ -64,11 +87,11 @@ def check_and_spend_credits(ip: str) -> tuple[bool, int]:
                 used = cur.fetchone()[0]
                 remaining = DAILY_LIMIT - used
                 if remaining < COST_PER_REQUEST:
-                    return False, remaining
+                    return False, 0
                 cur.execute(f"""
                     UPDATE {SCHEMA}.ai_credits
                     SET used = used + {COST_PER_REQUEST}, updated_at = NOW()
-                    WHERE ip = '{ip}'
+                    WHERE ip = '{browser_id}'
                 """)
                 return True, remaining - COST_PER_REQUEST
     finally:
@@ -87,14 +110,31 @@ def extract_json(text: str) -> dict:
 
 def handler(event: dict, context) -> dict:
     '''
-    Генерирует структуру сайта через OpenRouter Llama 3.3 70B.
-    Лимит: 1000 кредитов в день на IP, сброс в полночь UTC.
-    POST {prompt: str} → {site: {...}, credits_remaining: int}
+    GET  → возвращает текущий баланс кредитов {credits: int, limit: int}
+    POST → генерирует сайт и списывает 1 кредит
+    Идентификация по X-Browser-Id (уникальный ID браузера из localStorage).
+    Лимит: 1000 кредитов в день, сброс в полночь UTC.
     '''
     method = event.get('httpMethod', 'GET')
 
     if method == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
+
+    browser_id = get_browser_id(event)
+    if not browser_id:
+        return {
+            'statusCode': 400,
+            'headers': {**CORS, 'Content-Type': 'application/json'},
+            'body': json.dumps({'error': 'Отсутствует X-Browser-Id'}),
+        }
+
+    if method == 'GET':
+        remaining = get_credits(browser_id)
+        return {
+            'statusCode': 200,
+            'headers': {**CORS, 'Content-Type': 'application/json'},
+            'body': json.dumps({'credits': remaining, 'limit': DAILY_LIMIT}),
+        }
 
     if method != 'POST':
         return {
@@ -124,14 +164,13 @@ def handler(event: dict, context) -> dict:
             'body': json.dumps({'error': 'ИИ временно недоступен'}),
         }
 
-    ip = get_ip(event)
-    ok, remaining = check_and_spend_credits(ip)
+    ok, remaining = check_and_spend_credits(browser_id)
     if not ok:
         return {
             'statusCode': 429,
             'headers': {**CORS, 'Content-Type': 'application/json'},
             'body': json.dumps({
-                'error': f'Дневной лимит исчерпан. Кредиты обновятся в полночь по UTC.',
+                'error': 'Дневной лимит исчерпан. Кредиты обновятся в полночь по UTC.',
                 'credits_remaining': 0,
             }),
         }

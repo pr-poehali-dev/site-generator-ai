@@ -7,9 +7,27 @@
       "expectedStatus": 200
     },
     {
-      "name": "Empty prompt returns 400",
+      "name": "GET без browser_id возвращает 400",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "string"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "GET с browser_id возвращает баланс",
+      "method": "GET",
+      "path": "/",
+      "headers": {"X-Browser-Id": "test-browser-123"},
+      "expectedStatus": 200,
+      "expectedBody": {"credits": 1000, "limit": 1000},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "POST без prompt возвращает 400",
       "method": "POST",
       "path": "/",
+      "headers": {"X-Browser-Id": "test-browser-123"},
       "body": {"prompt": ""},
       "expectedStatus": 400,
       "expectedBody": {"error": "string"},
