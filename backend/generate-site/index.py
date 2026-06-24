@@ -97,8 +97,19 @@ def handler(event: dict, context) -> dict:
         method='POST',
     )
 
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        data = json.loads(resp.read().decode('utf-8'))
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode('utf-8')
+        print(f'OpenRouter HTTP {e.code}: {err_body}')
+        return {
+            'statusCode': 502,
+            'headers': {**CORS, 'Content-Type': 'application/json'},
+            'body': json.dumps({'error': f'OpenRouter {e.code}: {err_body}'}),
+        }
+
+    print('OpenRouter response:', json.dumps(data)[:500])
 
     raw = data['choices'][0]['message']['content']
     site = extract_json(raw)
